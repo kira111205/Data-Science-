@@ -272,6 +272,140 @@ display(analysis_df[[
     'positionOrder', 'points', 'status'
 ]].head())
 
+# Driver and Constructor Perspectives
+
+driver_summary = (
+    analysis_df.groupby('driver_name', as_index=False)
+    .agg(
+        starts=('resultId', 'size'),
+        total_points=('points', 'sum'),
+        wins=('positionOrder', lambda values: (values == 1).sum()),
+        podiums=('positionOrder', lambda values: (values <= 3).sum()),
+        top10_rate=('points_finish', 'mean')
+    )
+    .query('starts >= 20')
+    .sort_values('total_points', ascending=False)
+)
+
+constructor_summary = (
+    analysis_df.groupby('constructor_name', as_index=False)
+    .agg(
+        starts=('resultId', 'size'),
+        total_points=('points', 'sum'),
+        wins=('positionOrder', lambda values: (values == 1).sum()),
+        top10_rate=('points_finish', 'mean')
+    )
+    .query('starts >= 20')
+    .sort_values('total_points', ascending=False)
+)
+
+fig, axes = plt.subplots(1, 2, figsize=(17, 7))
+sns.barplot(data=driver_summary.head(15), y='driver_name', x='total_points', color='#E17055', ax=axes[0])
+axes[0].set_title('Top Drivers by Career Points')
+axes[0].set_xlabel('Career points')
+axes[0].set_ylabel('Driver')
+
+sns.barplot(data=constructor_summary.head(15), y='constructor_name', x='total_points', color='#6C5CE7', ax=axes[1])
+axes[1].set_title('Top Constructors by Career Points')
+axes[1].set_xlabel('Career points')
+axes[1].set_ylabel('Constructor')
+plt.tight_layout()
+plt.show()
+
+top_constructors = constructor_summary.head(8)['constructor_name'].tolist()
+annual_constructor = (
+    analysis_df[analysis_df['constructor_name'].isin(top_constructors)]
+    .groupby(['year', 'constructor_name'], as_index=False)['points'].sum()
+)
+plt.figure(figsize=(14, 6))
+sns.lineplot(data=annual_constructor, x='year', y='points', hue='constructor_name', linewidth=2)
+plt.title('Season Points Trajectories for Leading Constructors')
+plt.xlabel('Season')
+plt.ylabel('Points')
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(12, 5))
+status_order = analysis_df['status'].value_counts().head(10).index
+sns.countplot(data=analysis_df, y='status', order=status_order, color='#00CEC9')
+plt.title('Ten Most Common Result Statuses')
+plt.xlabel('Result count')
+plt.ylabel('Status')
+plt.tight_layout()
+plt.show()
+
+
+
+Model Evaluation and Interpretation
+
+cm = confusion_matrix(y_test, test_pred)
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+
+sns.heatmap(
+    cm, annot=True, fmt='d', cmap='Blues', cbar=False, ax=axes[0],
+    xticklabels=['Outside top 10', 'Top 10'],
+    yticklabels=['Outside top 10', 'Top 10']
+)
+axes[0].set_title('Confusion Matrix: Chronological Test Set')
+axes[0].set_xlabel('Predicted')
+axes[0].set_ylabel('Actual')
+
+RocCurveDisplay.from_predictions(y_test, test_prob, ax=axes[1], color='#D63031')
+axes[1].set_title('ROC Curve: Chronological Test Set')
+plt.tight_layout()
+plt.show()
+
+# Original-column permutation importance keeps categorical features readable.
+permutation = permutation_importance(
+    points_model, X_test, y_test, n_repeats=8, random_state=RANDOM_STATE,
+    scoring='roc_auc', n_jobs=-1
+)
+importance_df = pd.DataFrame({
+    'feature': feature_cols,
+    'importance_mean': permutation.importances_mean,
+    'importance_std': permutation.importances_std
+}).sort_values('importance_mean', ascending=True)
+
+plt.figure(figsize=(10, 6))
+plt.barh(
+    importance_df['feature'], importance_df['importance_mean'],
+    xerr=importance_df['importance_std'], color='#6C5CE7', alpha=0.85
+)
+plt.title('Permutation Importance on Held-Out Future Races')
+plt.xlabel('Decrease in ROC-AUC after permutation')
+plt.ylabel('Feature')
+plt.tight_layout()
+plt.show()
+display(importance_df.sort_values('importance_mean', ascending=False))
+
+# Compare observed and predicted top-10 rates by broad starting-position group.
+evaluation = test_df[['grid_clean', 'points_finish']].copy()
+evaluation['predicted_points_finish'] = test_pred
+evaluation['grid_band'] = pd.cut(
+    evaluation['grid_clean'], [0, 3, 10, 99], labels=['1-3', '4-10', '11+']
+)
+rate_compare = (
+    evaluation.melt(
+        id_vars='grid_band', value_vars=['points_finish', 'predicted_points_finish'],
+        var_name='series', value_name='top10'
+    )
+    .groupby(['grid_band', 'series'], observed=False, as_index=False)['top10'].mean()
+)
+rate_compare['series'] = rate_compare['series'].replace({
+    'points_finish': 'Observed',
+    'predicted_points_finish': 'Predicted'
+})
+
+plt.figure(figsize=(9, 5))
+sns.barplot(data=rate_compare, x='grid_band', y='top10', hue='series', palette='Set2')
+plt.title('Observed and Predicted Top-10 Rates by Grid Band')
+plt.xlabel('Grid band')
+plt.ylabel('Top-10 rate')
+plt.legend(title='Series')
+plt.tight_layout()
+plt.show()
+
+
 
 
 
