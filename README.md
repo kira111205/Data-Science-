@@ -119,5 +119,161 @@ Tuning: `<cross-validation method, e.g. time-aware CV, and parameters searched>`
 
 ---
 
+** Code **
+import pandas as pd
 
-`<ME24B1018, ME24B1024>` | `<Course / Institution>` | `<Date>`ce-
+# Load CSV files
+races = pd.read_csv('races.csv')
+results = pd.read_csv('results.csv')
+drivers = pd.read_csv('drivers.csv')
+constructors = pd.read_csv('constructors.csv')
+circuits = pd.read_csv('circuits.csv')
+status = pd.read_csv('status.csv')
+
+# Store all tables in a dictionary
+tables = {
+    'races': races,
+    'results': results,
+    'drivers': drivers,
+    'constructors': constructors,
+    'circuits': circuits,
+    'status': status
+}
+
+# Create a data audit
+audit = pd.DataFrame([
+    {
+        'table': name,
+        'rows': frame.shape[0],
+        'columns': frame.shape[1],
+        'duplicate_rows': int(frame.duplicated().sum()),
+        'missing_cells': int(frame.isna().sum().sum())
+    }
+    for name, frame in tables.items()
+]).sort_values('rows', ascending=False)
+
+display(audit)
+
+# Preview race results
+print('Preview of race results:')
+display(results.head())
+
+# Display data types
+print('Results data types:')
+display(results.dtypes.to_frame(name='dtype'))
+
+
+
+
+# Data loading and Audit 
+
+races = load_csv('races.csv')
+results = load_csv('results.csv')
+drivers = load_csv('drivers.csv')
+constructors = load_csv('constructors.csv')
+circuits = load_csv('circuits.csv')
+status = load_csv('status.csv')
+
+tables = {
+    'races': races,
+    'results': results,
+    'drivers': drivers,
+    'constructors': constructors,
+    'circuits': circuits,
+    'status': status
+}
+
+audit = pd.DataFrame([
+    {
+        'table': name,
+        'rows': frame.shape[0],
+        'columns': frame.shape[1],
+        'duplicate_rows': int(frame.duplicated().sum()),
+        'missing_cells': int(frame.isna().sum().sum())
+    }
+    for name, frame in tables.items()
+]).sort_values('rows', ascending=False)
+display(audit)
+
+print('Preview of race results:')
+display(results.head())
+print('Results data types:')
+display(results.dtypes.to_frame(name='dtype'))
+
+
+## Missing values 
+missing = results.isna().mean().mul(100).sort_values(ascending=False)
+missing = missing.rename('missing_percent').reset_index()
+missing = missing.rename(columns={'index': 'column'})
+display(missing)
+
+missing_to_plot = missing[missing['missing_percent'] > 0]
+if not missing_to_plot.empty:
+    plt.figure(figsize=(10, 5))
+    sns.barplot(data=missing_to_plot, x='missing_percent', y='column', color='#6C5CE7')
+    plt.title('Missingness in Race Results')
+    plt.xlabel('Missing values (%)')
+    plt.ylabel('Column')
+    plt.tight_layout()
+    plt.show()
+else:
+    print('No missing values were found in results.csv.')
+
+
+## DAta Cleaing 
+
+for frame_name, frame in tables.items():
+    date_columns = [
+        col for col in frame.columns
+        if 'date' in col.lower() or col.lower() == 'dob'
+    ]
+    for column in date_columns:
+        frame[column] = pd.to_datetime(frame[column], errors='coerce')
+        print(f'{frame_name}.{column}: {frame[column].notna().sum():,} valid datetime values')
+
+# Remove exact raw duplicates before enriching the fact table.
+results = results.drop_duplicates().copy()
+
+drivers_dim = drivers[['driverId', 'forename', 'surname', 'nationality', 'dob']].copy()
+drivers_dim['driver_name'] = (
+    drivers_dim['forename'].fillna('') + ' ' + drivers_dim['surname'].fillna('')
+).str.strip()
+
+constructors_dim = constructors[['constructorId', 'name', 'nationality']].rename(
+    columns={'name': 'constructor_name', 'nationality': 'constructor_nationality'}
+)
+races_dim = races[['raceId', 'year', 'round', 'circuitId', 'name', 'date']].rename(
+    columns={'name': 'race_name', 'date': 'race_date'}
+)
+circuits_dim = circuits[['circuitId', 'name', 'location', 'country', 'lat', 'lng', 'alt']].rename(
+    columns={'name': 'circuit_name'}
+)
+
+analysis_df = (
+    results
+    .merge(races_dim, on='raceId', how='left', validate='many_to_one')
+    .merge(drivers_dim[['driverId', 'driver_name', 'nationality', 'dob']], on='driverId', how='left', validate='many_to_one')
+    .merge(constructors_dim, on='constructorId', how='left', validate='many_to_one')
+    .merge(circuits_dim, on='circuitId', how='left', validate='many_to_one')
+    .merge(status[['statusId', 'status']], on='statusId', how='left', validate='many_to_one')
+)
+
+# Grid value zero represents a pit-lane or unrecorded start, never pole position.
+analysis_df['grid_clean'] = analysis_df['grid'].replace(0, np.nan)
+analysis_df['finish_position'] = analysis_df['positionOrder'].replace(0, np.nan)
+analysis_df['points_finish'] = (analysis_df['positionOrder'] <= 10).astype(int)
+analysis_df['finished_classified'] = analysis_df['position'].notna().astype(int)
+analysis_df['race_month'] = analysis_df['race_date'].dt.month
+analysis_df['driver_age'] = (analysis_df['race_date'] - analysis_df['dob']).dt.days / 365.25
+
+print(f'Analytical table dimensions: {analysis_df.shape[0]:,} rows x {analysis_df.shape[1]} columns')
+display(analysis_df[[
+    'year', 'race_name', 'driver_name', 'constructor_name', 'grid_clean',
+    'positionOrder', 'points', 'status'
+]].head())
+
+
+
+
+
+`<ME24B1010, ME24B1018, ME24B1024>` | `<IDSE/ IIITDM>` | `<Date>`ce-
